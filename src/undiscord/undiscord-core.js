@@ -1,14 +1,8 @@
-const PREFIX = '[DISCORD-TTL-SELFBOT]';
+const PREFIX = "[DISCORD-TTL-SELFBOT]";
 
-import { log } from './utils/log.js';
-import {
-  wait,
-  msToHMS,
-  redact,
-  queryString,
-  ask,
-  toSnowflake,
-} from './utils/helpers.js';
+import { log } from "./utils/log.js";
+import { wait, msToHMS, redact, queryString, ask, toSnowflake } from "./utils/helpers.js";
+import { getAllMessagesFromExport } from "./utils/data-export.js";
 
 /**
  * Delete all messages in a Discord channel or DM
@@ -16,7 +10,6 @@ import {
  * @see https://github.com/victornpb/undiscord
  */
 class UndiscordCore {
-
   options = {
     authToken: null, // Your authorization token
     authorId: null, // Author of the messages you want to delete
@@ -36,6 +29,7 @@ class UndiscordCore {
     maxAttempt: 2, // Attempts to delete a single message if it fails
     askForConfirmation: true,
     customHeaders: {},
+    dataExport: null
   };
 
   state = {
@@ -49,7 +43,7 @@ class UndiscordCore {
 
     _seachResponse: null,
     _messagesToDelete: [],
-    _skippedMessages: [],
+    _skippedMessages: []
   };
 
   stats = {
@@ -58,7 +52,7 @@ class UndiscordCore {
     throttledTotalTime: 0, // the total amount of time you spent being throttled
     lastPing: null, // the most recent ping
     avgPing: null, // average ping used to calculate the estimated remaining time
-    etr: 0,
+    etr: 0
   };
 
   // events
@@ -79,7 +73,7 @@ class UndiscordCore {
 
       _seachResponse: null,
       _messagesToDelete: [],
-      _skippedMessages: [],
+      _skippedMessages: []
     };
 
     this.options.askForConfirmation = true;
@@ -87,7 +81,7 @@ class UndiscordCore {
 
   /** Automate the deletion process of multiple channels */
   async runBatch(queue) {
-    if (this.state.running) return log.error('Already running!');
+    if (this.state.running) return log.error("Already running!");
 
     log.info(`Runnning batch with queue of ${queue.length} jobs`);
     for (let i = 0; i < queue.length; i++) {
@@ -97,30 +91,30 @@ class UndiscordCore {
       }
 
       const job = queue[i];
-      log.info('Starting job...', `(${i + 1}/${queue.length}):\n`, job);
+      log.info("Starting job...", `(${i + 1}/${queue.length}):\n`, job);
 
       // set options
       this.options = {
         ...this.options, // keep current options
-        ...job, // override with options for that job
+        ...job // override with options for that job
       };
 
       await this.run(true);
       if (!this.state.running) break;
 
-      log.info('Job ended.', `(${i + 1}/${queue.length})`);
+      log.info("Job ended.", `(${i + 1}/${queue.length})`);
       this.resetState();
       this.options.askForConfirmation = false;
       this.state.running = true; // continue running
     }
 
-    log.info('Batch finished.');
+    log.info("Batch finished.");
     this.state.running = false;
   }
 
   /** Start the deletion process */
   async run(isJob = false) {
-    if (this.state.running && !isJob) return log.error('Already running!');
+    if (this.state.running && !isJob) return log.error("Already running!");
 
     this.state.running = true;
     this.stats.startTime = new Date();
@@ -133,7 +127,7 @@ class UndiscordCore {
       `minId = "${redact(this.options.minId)}"`,
       `maxId = "${redact(this.options.maxId)}"`,
       `hasLink = ${!!this.options.hasLink}`,
-      `hasFile = ${!!this.options.hasFile}`,
+      `hasFile = ${!!this.options.hasFile}`
     );
 
     if (this.onStart) this.onStart(this.state, this.stats);
@@ -141,61 +135,94 @@ class UndiscordCore {
     do {
       this.state.iterations++;
 
-      log.verb('Fetching messages...');
-      // Search messages
-      await this.search();
+      log.verb("Fetching messages...");
+      if (this.options.dataExport) {
+        const allMessages = await getAllMessagesFromExport(this.options.dataExport, this.options.channelId);
+        this._messagesToDelete = allMessages
+          .filter(m => {
+            if (this.options.hasFile && m.Attachments.length === 0) {
+              return false;
+            }
 
-      // Process results and find which messages should be deleted
-      await this.filterResponse();
+            if (this.options.hasLink && !m.Content.includes("http")) {
+              return false;
+            }
 
-      log.verb(
-        `Grand total: ${this.state.grandTotal}`,
-        `(Messages in current page: ${this.state._seachResponse.messages.length}`,
-        `To be deleted: ${this.state._messagesToDelete.length}`,
-        `Skipped: ${this.state._skippedMessages.length})`,
-        `offset: ${this.state.offset}`
-      );
-      this.printStats();
+            if (this.options.minId && BigInt(m.ID) < BigInt(this.options.minId)) {
+              return false;
+            }
 
-      // Calculate estimated time
-      this.calcEtr();
-      log.verb(`Estimated time remaining: ${msToHMS(this.stats.etr)}`);
+            if (this.options.maxId && BigInt(m.ID) > BigInt(this.options.maxId)) {
+              return false;
+            }
+          })
+          .map(m => ({
+            id: m.ID,
+            channel_id: this.options.channelId,
+            content: m.Content,
+            timestamp: m.Timestamp,
+            attachments: m.Attachments,
+            author: { id: this.options.authorId, username: "@me" }
+          }));
+      } else {
+        // Search messages
+        await this.search();
+
+        // Process results and find which messages should be deleted
+        await this.filterResponse();
+
+        log.verb(
+          `Grand total: ${this.state.grandTotal}`,
+          `(Messages in current page: ${this.state._seachResponse.messages.length}`,
+          `To be deleted: ${this.state._messagesToDelete.length}`,
+          `Skipped: ${this.state._skippedMessages.length})`,
+          `offset: ${this.state.offset}`
+        );
+        this.printStats();
+
+        // Calculate estimated time
+        this.calcEtr();
+        log.verb(`Estimated time remaining: ${msToHMS(this.stats.etr)}`);
+      }
 
       // if there are messages to delete, delete them
       if (this.state._messagesToDelete.length > 0) {
-
-        if (await this.confirm() === false) {
+        if ((await this.confirm()) === false) {
           this.state.running = false; // break out of a job
           break; // immmediately stop this iteration
         }
 
         await this.deleteMessagesFromList();
-      }
-      else if (this.state._skippedMessages.length > 0) {
+      } else if (this.state._skippedMessages.length > 0) {
         // There are stuff, but nothing to delete (example a page full of system messages)
         // check next page until we see a page with nothing in it (end of results).
         const oldOffset = this.state.offset;
         this.state.offset += this.state._skippedMessages.length;
-        log.verb('There\'s nothing we can delete on this page, checking next page...');
-        log.verb(`Skipped ${this.state._skippedMessages.length} out of ${this.state._seachResponse.messages.length} in this page.`, `(Offset was ${oldOffset}, ajusted to ${this.state.offset})`);
-      }
-      else {
-        log.verb('Ended because API returned an empty page.');
-        log.verb('[End state]', this.state);
+        log.verb("There's nothing we can delete on this page, checking next page...");
+        log.verb(
+          `Skipped ${this.state._skippedMessages.length} out of ${this.state._seachResponse.messages.length} in this page.`,
+          `(Offset was ${oldOffset}, ajusted to ${this.state.offset})`
+        );
+      } else {
+        log.verb("Ended because API returned an empty page.");
+        log.verb("[End state]", this.state);
         if (isJob) break; // break without stopping if this is part of a job
         this.state.running = false;
       }
 
-      if (this.onPage) this.onPage(this.state, this.stats)
+      if (this.onPage) this.onPage(this.state, this.stats);
 
       // wait before next page (fix search page not updating fast enough)
       log.verb(`Waiting ${(this.options.searchDelay / 1000).toFixed(2)}s before next page...`);
       await wait(this.options.searchDelay);
-
     } while (this.state.running);
 
     this.stats.endTime = new Date();
-    log.success(`Ended at ${this.stats.endTime.toLocaleString()}! Total time: ${msToHMS(this.stats.endTime.getTime() - this.stats.startTime.getTime())}`);
+    log.success(
+      `Ended at ${this.stats.endTime.toLocaleString()}! Total time: ${msToHMS(
+        this.stats.endTime.getTime() - this.stats.startTime.getTime()
+      )}`
+    );
     this.printStats();
     log.info(`Deleted ${this.state.delCount} messages, ${this.state.failCount} failed.\n`);
 
@@ -209,29 +236,32 @@ class UndiscordCore {
 
   /** Calculate the estimated time remaining based on the current stats */
   calcEtr() {
-    this.stats.etr = (this.options.searchDelay * Math.round(this.state.grandTotal / 25)) + ((this.options.deleteDelay + this.stats.avgPing) * this.state.grandTotal);
+    this.stats.etr =
+      this.options.searchDelay * Math.round(this.state.grandTotal / 25) +
+      (this.options.deleteDelay + this.stats.avgPing) * this.state.grandTotal;
   }
 
   /** As for confirmation in the beggining process */
   async confirm() {
     if (!this.options.askForConfirmation) return true;
 
-    log.verb('Waiting for your confirmation...');
-    const preview = this.state._messagesToDelete.map(m => `${m.author.username}#${m.author.discriminator}: ${m.attachments.length ? '[ATTACHMENTS]' : m.content}`).join('\n');
+    log.verb("Waiting for your confirmation...");
+    const preview = this.state._messagesToDelete
+      .map(m => `${m.author.username}#${m.author.discriminator}: ${m.attachments.length ? "[ATTACHMENTS]" : m.content}`)
+      .join("\n");
 
     const answer = await ask(
       `Do you want to delete ~${this.state.grandTotal} messages? (Estimated time: ${msToHMS(this.stats.etr)})` +
-      '(The actual number of messages may be less, depending if you\'re using filters to skip some messages)' +
-      '\n\n---- Preview ----\n' +
-      preview
+        "(The actual number of messages may be less, depending if you're using filters to skip some messages)" +
+        "\n\n---- Preview ----\n" +
+        preview
     );
 
     if (!answer) {
-      log.error('Aborted by you!');
+      log.error("Aborted by you!");
       return false;
-    }
-    else {
-      log.verb('OK');
+    } else {
+      log.verb("OK");
       this.options.askForConfirmation = false; // do not ask for confirmation again on the next request
       return true;
     }
@@ -239,33 +269,39 @@ class UndiscordCore {
 
   async search(retry = false) {
     let API_SEARCH_URL;
-    if (this.options.guildId === '@me') API_SEARCH_URL = `https://discord.com/api/v9/channels/${this.options.channelId}/messages/`; // DMs
+    if (this.options.guildId === "@me")
+      API_SEARCH_URL = `https://discord.com/api/v9/channels/${this.options.channelId}/messages/`; // DMs
     else API_SEARCH_URL = `https://discord.com/api/v9/guilds/${this.options.guildId}/messages/`; // Server
     let resp;
     try {
       this.beforeRequest();
-      resp = await fetch(API_SEARCH_URL + 'search?' + queryString([
-        ['author_id', this.options.authorId || undefined],
-        ['channel_id', (this.options.guildId !== '@me' ? this.options.channelId : undefined) || undefined],
-        ['min_id', this.options.minId ? toSnowflake(this.options.minId) : undefined],
-        ['max_id', this.options.maxId ? toSnowflake(this.options.maxId) : undefined],
-        ['sort_by', 'timestamp'],
-        ['sort_order', 'desc'],
-        ['offset', this.state.offset],
-        ['has', this.options.hasLink ? 'link' : undefined],
-        ['has', this.options.hasFile ? 'file' : undefined],
-        ['content', this.options.content || undefined],
-        ['include_nsfw', this.options.includeNsfw ? true : undefined],
-      ]), {
-        headers: {
-          ...this.options.customHeaders,
-          'Authorization': this.options.authToken,
+      resp = await fetch(
+        API_SEARCH_URL +
+          "search?" +
+          queryString([
+            ["author_id", this.options.authorId || undefined],
+            ["channel_id", (this.options.guildId !== "@me" ? this.options.channelId : undefined) || undefined],
+            ["min_id", this.options.minId ? toSnowflake(this.options.minId) : undefined],
+            ["max_id", this.options.maxId ? toSnowflake(this.options.maxId) : undefined],
+            ["sort_by", "timestamp"],
+            ["sort_order", "desc"],
+            ["offset", this.state.offset],
+            ["has", this.options.hasLink ? "link" : undefined],
+            ["has", this.options.hasFile ? "file" : undefined],
+            ["content", this.options.content || undefined],
+            ["include_nsfw", this.options.includeNsfw ? true : undefined]
+          ]),
+        {
+          headers: {
+            ...this.options.customHeaders,
+            Authorization: this.options.authToken
+          }
         }
-      });
+      );
       this.afterRequest();
     } catch (err) {
       this.state.running = false;
-      log.error('Search request threw an error:', err);
+      log.error("Search request threw an error:", err);
       throw err;
     }
 
@@ -283,8 +319,8 @@ class UndiscordCore {
     if (!resp.ok) {
       // searching messages too fast
       if (resp.status === 429) {
-        const body = await resp.json()
-        log.verb('Ratelimit body:', body);
+        const body = await resp.json();
+        log.verb("Ratelimit body:", body);
         let w = parseInt(body.retry_after * 1000);
         w = w || this.options.searchDelay; // Fix retry_after 0
 
@@ -301,7 +337,7 @@ class UndiscordCore {
       } else if (resp.status === 403) {
         // insufficient permissions -- guild is empty or specific channel isn't accessible
         log.warn(`API responded with 403 - Insufficient Permissions when searching for messages:\n`, await resp.json());
-        this.state._seachResponse = {messages:[]};
+        this.state._seachResponse = { messages: [] };
         return this.state._seachResponse;
       } else {
         this.state.running = false;
@@ -311,7 +347,7 @@ class UndiscordCore {
     }
     const data = await resp.json();
     this.state._seachResponse = data;
-    console.debug(PREFIX, 'search', data);
+    console.debug(PREFIX, "search", data);
     if (!retry && this.state._seachResponse.messages.length === 0) {
       if (this.state.grandTotal && this.state.delCount && this.state.failCount && this.state.iterations) {
         if (this.state.grandTotal <= this.state.delCount + this.state.failCount && this.state.iterations > 0) {
@@ -319,7 +355,9 @@ class UndiscordCore {
           return data;
         }
       }
-      log.warn(`Search returned empty page! Waiting for ${this.options.searchDelay}ms then retrying once more before exiting...`);
+      log.warn(
+        `Search returned empty page! Waiting for ${this.options.searchDelay}ms then retrying once more before exiting...`
+      );
       this.state.emptyPageRetries++;
       await wait(this.options.searchDelay);
       return await this.search(true);
@@ -340,16 +378,18 @@ class UndiscordCore {
     // we can only delete some types of messages, system messages are not deletable.
     let messagesToDelete = discoveredMessages;
     // type 46 = polls (self-deletable)
-    messagesToDelete = messagesToDelete.filter(msg => msg.type === 0 || msg.type === 46 || (msg.type >= 6 && msg.type <= 19));
-    messagesToDelete = messagesToDelete.filter(msg => msg.pinned ? this.options.includePinned : true);
+    messagesToDelete = messagesToDelete.filter(
+      msg => msg.type === 0 || msg.type === 46 || (msg.type >= 6 && msg.type <= 19)
+    );
+    messagesToDelete = messagesToDelete.filter(msg => (msg.pinned ? this.options.includePinned : true));
 
     // custom filter of messages
-    if (this.options.pattern !== undefined && this.options.pattern !== null && this.options.pattern !== '') {
+    if (this.options.pattern !== undefined && this.options.pattern !== null && this.options.pattern !== "") {
       try {
-        const regex = new RegExp(this.options.pattern, 'i');
+        const regex = new RegExp(this.options.pattern, "i");
         messagesToDelete = messagesToDelete.filter(msg => regex.test(msg.content));
       } catch (e) {
-        log.warn('Ignoring RegExp because pattern is malformed!', e);
+        log.warn("Ignoring RegExp because pattern is malformed!", e);
       }
     }
 
@@ -359,21 +399,21 @@ class UndiscordCore {
     this.state._messagesToDelete = messagesToDelete;
     this.state._skippedMessages = skippedMessages;
 
-    console.debug(PREFIX, 'filterResponse', this.state);
+    console.debug(PREFIX, "filterResponse", this.state);
   }
 
   async deleteMessagesFromList() {
     for (let i = 0; i < this.state._messagesToDelete.length; i++) {
       const message = this.state._messagesToDelete[i];
-      if (!this.state.running) return log.error('Stopped by you!');
+      if (!this.state.running) return log.error("Stopped by you!");
 
       log.info(
         // `${((this.state.delCount + 1) / this.state.grandTotal * 100).toFixed(2)}%`,
         `[${this.state.delCount + 1}/${this.state.grandTotal}] ` +
-        `<sup>${new Date(message.timestamp).toLocaleString()}</sup> ` +
-        `<b>${redact(message.author.username + '#' + message.author.discriminator)}</b>` +
-        `: <i>${redact(message.content).replace(/\n/g, '↵')}</i>` +
-        (message.attachments.length ? redact(JSON.stringify(message.attachments)) : ''),
+          `<sup>${new Date(message.timestamp).toLocaleString()}</sup> ` +
+          `<b>${redact(message.author.username)}</b>` +
+          `: <i>${redact(message.content).replace(/\n/g, "↵")}</i>` +
+          (message.attachments.length ? redact(JSON.stringify(message.attachments)) : ""),
         `<sup>{ID:${redact(message.id)}}</sup>`
       );
 
@@ -382,7 +422,7 @@ class UndiscordCore {
       while (attempt < this.options.maxAttempt) {
         const result = await this.deleteMessage(message);
         attempt++;
-        if (result === 'RETRY' || result === 'FAILED') {
+        if (result === "RETRY" || result === "FAILED") {
           if (attempt >= this.options.maxAttempt) {
             this.state.offset++;
             this.state.failCount++;
@@ -391,7 +431,7 @@ class UndiscordCore {
           log.verb(`Retrying in ${this.options.deleteDelay}ms... (${attempt}/${this.options.maxAttempt})`);
           await wait(this.options.deleteDelay);
           continue;
-        } else if (result === 'FAIL_SKIP') {
+        } else if (result === "FAIL_SKIP") {
           this.state.offset++;
           this.state.failCount++;
         }
@@ -411,18 +451,18 @@ class UndiscordCore {
     try {
       this.beforeRequest();
       resp = await fetch(API_DELETE_URL, {
-        method: 'DELETE',
+        method: "DELETE",
         headers: {
           ...this.options.customHeaders,
-          'Authorization': this.options.authToken,
-        },
+          Authorization: this.options.authToken
+        }
       });
       this.afterRequest();
     } catch (err) {
       // no response error (e.g. network error)
-      log.error('Delete request throwed an error:', err);
-      log.verb('Related object:', redact(JSON.stringify(message)));
-      return 'FAILED';
+      log.error("Delete request throwed an error:", err);
+      log.verb("Related object:", redact(JSON.stringify(message)));
+      return "FAILED";
     }
 
     if (!resp.ok) {
@@ -436,10 +476,10 @@ class UndiscordCore {
         this.printStats();
         log.verb(`Cooling down for ${w * 2}ms before retrying...`);
         await wait(w * 2);
-        return 'RETRY';
+        return "RETRY";
       } else if (resp.status === 403) {
-        log.warn('Insufficient permissions to delete message. Skipping...');
-        return 'FAIL_SKIP';
+        log.warn("Insufficient permissions to delete message. Skipping...");
+        return "FAIL_SKIP";
       } else {
         const body = await resp.text();
 
@@ -448,13 +488,13 @@ class UndiscordCore {
 
           if (resp.status === 400 && r.code === 50083) {
             // 400 can happen if the thread is archived (code=50083)
-            log.warn('Error deleting message (Thread is archived). Attempting to unarchive...');
-            return await this.unarchiveThread(message.channel_id)
+            log.warn("Error deleting message (Thread is archived). Attempting to unarchive...");
+            return await this.unarchiveThread(message.channel_id);
           }
 
           log.error(`Error deleting message, API responded with status ${resp.status}!`, r);
-          log.verb('Related object:', redact(JSON.stringify(message)));
-          return 'FAILED';
+          log.verb("Related object:", redact(JSON.stringify(message)));
+          return "FAILED";
         } catch (e) {
           log.error(`Fail to parse JSON. API responded with status ${resp.status}!`, body);
         }
@@ -462,7 +502,7 @@ class UndiscordCore {
     }
 
     this.state.delCount++;
-    return 'OK';
+    return "OK";
   }
 
   async unarchiveThread(channel_id) {
@@ -474,30 +514,30 @@ class UndiscordCore {
     try {
       this.beforeRequest();
       resp = await fetch(API_CHANNELS_URL, {
-        method: 'PATCH',
+        method: "PATCH",
         headers: {
           ...this.options.customHeaders,
-          'Authorization': this.options.authToken,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
+          Authorization: this.options.authToken,
+          "Content-Type": "application/json",
+          Accept: "application/json"
         },
-        body: JSON.stringify({'archived': false}),
+        body: JSON.stringify({ archived: false })
       });
       this.afterRequest();
     } catch (err) {
       // no response error (e.g. network error)
       log.error(`Unarchive request for channel id ${channel_id} threw an error:`, err);
-      return 'FAILED';
+      return "FAILED";
     }
 
     if (!resp.ok) {
-      log.error('Unarchive request returned not-okay response:', resp);
-      log.warn('This message will be skipped');
-      return 'FAIL_SKIP';
+      log.error("Unarchive request returned not-okay response:", resp);
+      log.warn("This message will be skipped");
+      return "FAIL_SKIP";
     }
 
-    log.verb('Thread successfully unarchived');
-    return 'RETRY';
+    log.verb("Thread successfully unarchived");
+    return "RETRY";
   }
 
   #beforeTs = 0; // used to calculate latency
@@ -505,14 +545,15 @@ class UndiscordCore {
     this.#beforeTs = Date.now();
   }
   afterRequest() {
-    this.stats.lastPing = (Date.now() - this.#beforeTs);
-    this.stats.avgPing = this.stats.avgPing > 0 ? (this.stats.avgPing * 0.9) + (this.stats.lastPing * 0.1) : this.stats.lastPing;
+    this.stats.lastPing = Date.now() - this.#beforeTs;
+    this.stats.avgPing =
+      this.stats.avgPing > 0 ? this.stats.avgPing * 0.9 + this.stats.lastPing * 0.1 : this.stats.lastPing;
   }
 
   printStats() {
     log.verb(
       `Delete delay: ${this.options.deleteDelay}ms, Search delay: ${this.options.searchDelay}ms`,
-      `Last Ping: ${this.stats.lastPing}ms, Average Ping: ${this.stats.avgPing | 0}ms`,
+      `Last Ping: ${this.stats.lastPing}ms, Average Ping: ${this.stats.avgPing | 0}ms`
     );
     log.verb(
       `Rate Limited: ${this.stats.throttledCount} times.`,

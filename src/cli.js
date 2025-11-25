@@ -1,12 +1,18 @@
 #!/usr/bin/env node
 
-import UndiscordCore from './undiscord/undiscord-core.js';
-import { toSnowflake } from './undiscord/utils/helpers.js';
-import { log } from './undiscord/utils/log.js';
+import UndiscordCore from "./undiscord/undiscord-core.js";
+import { getAllDmIdsFromExport, getAllGuildIdsFromExport } from "./undiscord/utils/data-export.js";
+import { toSnowflake } from "./undiscord/utils/helpers.js";
+import { log } from "./undiscord/utils/log.js";
 
 // Parse command line arguments
 const args = process.argv.slice(2);
-const options = {};
+const options = {
+  authToken: process.env.DISCORD_AUTH_TOKEN,
+  authorId: process.env.DISCORD_AUTHOR_ID,
+  dataExport: process.env.DISCORD_DATA_EXPORT
+};
+
 let excludeDms = false;
 let verboseLogging = false;
 let debugLogging = false;
@@ -105,121 +111,124 @@ for (let i = 0; i < args.length; i++) {
   const nextArg = args[i + 1];
 
   switch (arg) {
-    case '--help':
-    case '-h':
+    case "--help":
+    case "-h":
       showHelp();
       process.exit(0);
       break;
-    case '--token':
-    case '-t':
+    case "--token":
+    case "-t":
       options.authToken = nextArg;
       i++;
       break;
-    case '--author-id':
-    case '-a':
+    case "--author-id":
+    case "-a":
       options.authorId = nextArg;
       i++;
       break;
-    case '--guild-id':
-    case '--guild-ids':
-    case '-g':
-      options.guildIds = nextArg ? nextArg.split(',').map(id => id.trim()) : [];
+    case "--guild-id":
+    case "--guild-ids":
+    case "-g":
+      options.guildIds = nextArg ? nextArg.split(",").map(id => id.trim()) : [];
       i++;
       break;
-    case '--channel-id':
-    case '--channel-ids':
-    case '-c':
-      options.channelIds = nextArg ? nextArg.split(',').map(id => id.trim()) : [];
+    case "--channel-id":
+    case "--channel-ids":
+    case "-c":
+      options.channelIds = nextArg ? nextArg.split(",").map(id => id.trim()) : [];
       i++;
       break;
-    case '--ignore-guild-id':
-    case '--ignore-guild-ids':
-    case '--ignored-guild-id':
-    case '--ignored-guild-ids':
-      options.ignoredGuildIds = nextArg ? nextArg.split(',').map(id => id.trim()) : [];
+    case "--ignore-guild-id":
+    case "--ignore-guild-ids":
+    case "--ignored-guild-id":
+    case "--ignored-guild-ids":
+      options.ignoredGuildIds = nextArg ? nextArg.split(",").map(id => id.trim()) : [];
       i++;
       break;
-    case '--ignore-dm-id':
-    case '--ignore-dm-ids':
-    case '--ignored-dm-id':
-    case '--ignored-dm-ids':
-      options.ignoredDmIds = nextArg ? nextArg.split(',').map(id => id.trim()) : [];
+    case "--ignore-dm-id":
+    case "--ignore-dm-ids":
+    case "--ignored-dm-id":
+    case "--ignored-dm-ids":
+      options.ignoredDmIds = nextArg ? nextArg.split(",").map(id => id.trim()) : [];
       i++;
-      break
-    case '--min-id':
+      break;
+    case "--min-id":
       options.minId = nextArg;
       i++;
       break;
-    case '--max-id':
+    case "--max-id":
       options.maxId = nextArg;
       i++;
       break;
-    case '--min-age-in-days':
-    case '--min-age':
+    case "--min-age-in-days":
+    case "--min-age":
       options.minAge = parseInt(nextArg) || undefined;
       i++;
       break;
-    case '--max-age-in-days':
-    case '--max-age':
+    case "--max-age-in-days":
+    case "--max-age":
       options.maxAge = parseInt(nextArg) || undefined;
       i++;
-      break
-    case '--content':
+      break;
+    case "--content":
       options.content = nextArg;
       i++;
       break;
-    case '--has-link':
-      options.hasLink = nextArg === 'true';
+    case "--has-link":
+      options.hasLink = nextArg === "true";
       i++;
       break;
-    case '--has-file':
-      options.hasFile = nextArg === 'true';
+    case "--has-file":
+      options.hasFile = nextArg === "true";
       i++;
       break;
-    case '--include-nsfw':
-      options.includeNsfw = nextArg === 'true';
+    case "--include-nsfw":
+      options.includeNsfw = nextArg === "true";
       i++;
       break;
-    case '--include-pinned':
-    case '--include-pins':
-      options.includePinned = nextArg === 'true';
+    case "--include-pinned":
+    case "--include-pins":
+      options.includePinned = nextArg === "true";
       i++;
       break;
-    case '--exclude-dms':
+    case "--exclude-dms":
       excludeDms = true;
       break;
-    case '--pattern':
+    case "--pattern":
       options.pattern = nextArg;
       i++;
       break;
-    case '--search-delay':
+    case "--search-delay":
       options.searchDelay = parseInt(nextArg) || 30000;
       i++;
       break;
-    case '--delete-delay':
+    case "--delete-delay":
       options.deleteDelay = parseInt(nextArg) || 2000;
       i++;
       break;
-    case '--max-attempts':
+    case "--max-attempts":
       options.maxAttempt = parseInt(nextArg) || 3;
       i++;
       break;
-    case '--custom-headers':
+    case "--custom-headers":
       options.customHeaders = JSON.parse(nextArg) || undefined;
       i++;
-    case '--no-confirm':
+    case "--no-confirm":
       options.askForConfirmation = false;
       break;
-    case '--verbose':
-    case '-v':
+    case "--verbose":
+    case "-v":
       verboseLogging = true;
       break;
-    case '--debug':
-    case '-d':
+    case "--debug":
+    case "-d":
       debugLogging = true;
-      break
+      break;
+    case "--data-export":
+      options.dataExport = nextArg;
+      break;
     default:
-      if (arg.startsWith('-')) {
+      if (arg.startsWith("-")) {
         console.error(`Unknown option: ${arg}`);
         process.exit(1);
       }
@@ -228,7 +237,7 @@ for (let i = 0; i < args.length; i++) {
 
 // Validate required options
 if (!options.authToken) {
-  console.error('Error: --token is required');
+  console.error("Error: --token is required");
   showHelp();
   process.exit(1);
 }
@@ -240,25 +249,25 @@ if (!options.channelIds || options.channelIds.length === 0) {
 if (!options.guildIds || options.guildIds.length === 0) {
   options.guildIds = [];
   if (options.channelIds.length > 0) {
-    console.error('Error: --channel-ids cannot be provided if --guild-id is empty');
+    console.error("Error: --channel-ids cannot be provided if --guild-id is empty");
     showHelp();
     process.exit(1);
   }
 } else if (options.guildIds.length > 1) {
   if (options.channelIds.length > 0) {
-    console.error('Error: --channel-ids cannot be provided if --guild-ids is greater than one');
+    console.error("Error: --channel-ids cannot be provided if --guild-ids is greater than one");
     showHelp();
     process.exit(1);
   }
 }
 
 if (options.minId && options.maxAge) {
-  console.error('Error: --min-id and --max-age are mutually exclusive');
+  console.error("Error: --min-id and --max-age are mutually exclusive");
   showHelp();
   process.exit(1);
 } else {
   if (options.maxAge) {
-    const date = new Date()
+    const date = new Date();
     date.setDate(date.getDate() - options.maxAge);
     options.minId = toSnowflake(date);
     delete options.maxAge;
@@ -266,12 +275,12 @@ if (options.minId && options.maxAge) {
 }
 
 if (options.maxId && options.maxAge) {
-  console.error('Error: --max-id and --min-age are mutually exclusive');
+  console.error("Error: --max-id and --min-age are mutually exclusive");
   showHelp();
   process.exit(1);
 } else {
   if (options.minAge) {
-    const date = new Date()
+    const date = new Date();
     date.setDate(date.getDate() - options.minAge);
     options.maxId = toSnowflake(date);
     delete options.minAge;
@@ -288,30 +297,34 @@ options.askForConfirmation = false;
 const undiscord = new UndiscordCore();
 
 // Handle graceful shutdown
-process.on('SIGINT', () => {
-  log.warn('Received SIGINT, stopping...');
+process.on("SIGINT", () => {
+  log.warn("Received SIGINT, stopping...");
   undiscord.stop();
   process.exit(0);
 });
 
-process.on('SIGTERM', () => {
-  log.warn('Received SIGTERM, stopping...');
+process.on("SIGTERM", () => {
+  log.warn("Received SIGTERM, stopping...");
   undiscord.stop();
   process.exit(0);
 });
 
 // Configure event handlers
 undiscord.onStart = (state, stats) => {
-  log.info('🚀 Started deletion process');
+  log.info("🚀 Started deletion process");
 };
 
 undiscord.onPage = (state, stats) => {
-  const percent = state.grandTotal > 0 ? ((state.delCount + state.failCount) / state.grandTotal * 100).toFixed(1) : 0;
-  log.info(`Progress: ${percent}% (${state.delCount + state.failCount}/${state.grandTotal}) - Deleted: ${state.delCount}, Failed: ${state.failCount}`);
+  const percent = state.grandTotal > 0 ? (((state.delCount + state.failCount) / state.grandTotal) * 100).toFixed(1) : 0;
+  log.info(
+    `Progress: ${percent}% (${state.delCount + state.failCount}/${state.grandTotal}) - Deleted: ${
+      state.delCount
+    }, Failed: ${state.failCount}`
+  );
 };
 
 undiscord.onStop = (state, stats) => {
-  log.success('✅ Deletion process completed');
+  log.success("✅ Deletion process completed");
   log.info(`Final stats - Deleted: ${state.delCount}, Failed: ${state.failCount}`);
 };
 
@@ -322,14 +335,14 @@ async function getAllGuildIds(authToken, customHeaders) {
     resp = await fetch(API_URL, {
       headers: {
         ...customHeaders,
-        'Authorization': authToken,
+        Authorization: authToken
       }
     });
     if (!resp.ok) {
-      throw Error('response was not ok:', resp)
+      throw Error("response was not ok:", resp);
     }
   } catch (err) {
-    log.error('getAllGuildIds threw an error:', err);
+    log.error("getAllGuildIds threw an error:", err);
     throw err;
   }
   const data = await resp.json();
@@ -353,14 +366,14 @@ async function getAllDmIds(authToken, customHeaders) {
     resp = await fetch(API_URL, {
       headers: {
         ...customHeaders,
-        'Authorization': authToken,
+        Authorization: authToken
       }
     });
     if (!resp.ok) {
-      throw Error('response was not ok:', resp)
+      throw Error("response was not ok:", resp);
     }
   } catch (err) {
-    log.error('getAllDmIds threw an error:', err);
+    log.error("getAllDmIds threw an error:", err);
     throw err;
   }
   const data = await resp.json();
@@ -374,13 +387,13 @@ async function getAllDmIds(authToken, customHeaders) {
 // Main execution
 async function main() {
   try {
-    log.info('🔧 Configuring undiscord...');
+    log.info("🔧 Configuring undiscord...");
 
     if (!debugLogging) {
-      console.debug = function () { };
+      console.debug = function () {};
     }
     if (!verboseLogging) {
-      log.verb = function () { };
+      log.verb = function () {};
     }
 
     // Set options
@@ -392,7 +405,7 @@ async function main() {
       channelIds: undefined,
       guildIds: undefined,
       ignoredGuildIds: undefined,
-      ignoredDmIds: undefined,
+      ignoredDmIds: undefined
     };
 
     // collect jobs
@@ -403,58 +416,62 @@ async function main() {
       if (options.guildIds.length === 0) {
         // guild ids were NOT provided
         shouldFetchDmIds = true;
-        log.info('Fetching all Guild IDs...');
-        let guildIds = await getAllGuildIds(options.authToken, options.customHeaders);
+        log.info("Fetching all Guild IDs...");
+        let guildIds = options.dataExport
+          ? await getAllGuildIdsFromExport(options.dataExport)
+          : await getAllGuildIds(options.authToken, options.customHeaders);
         if (options.ignoredGuildIds) {
           guildIds = guildIds.filter(id => !options.ignoredGuildIds.includes(id));
         }
         for (const guildId of guildIds) {
           jobs.push({
-            guildId: guildId,
+            guildId: guildId
           });
         }
       } else {
         // multiple guild ids were provided
-        if (options.guildIds.includes('@me')) {
+        if (options.guildIds.includes("@me")) {
           // one of the guild ids is for DMs @me
           // channel ids cannot be provided if multiple guild ids were provided, so we will fetch them all
           shouldFetchDmIds = true;
         }
         for (const guildId of options.guildIds) {
-          if (guildId === '@me' || (options.ignoredGuildIds && options.ignoredGuildIds.includes(guildId))) {
+          if (guildId === "@me" || (options.ignoredGuildIds && options.ignoredGuildIds.includes(guildId))) {
             continue;
           }
           jobs.push({
-            guildId: guildId,
+            guildId: guildId
           });
         }
       }
     } else {
       // guild id is exactly one
-      if (undiscord.options.guildId === '@me' && !excludeDms) {
+      if (undiscord.options.guildId === "@me" && !excludeDms) {
         if (undiscord.options.channelId === undefined) {
           shouldFetchDmIds = true;
         } else {
           // no need to fetch dms, the user has provided them
           for (const dmId of options.channelIds) {
             jobs.push({
-              guildId: '@me',
-              channelId: dmId,
+              guildId: "@me",
+              channelId: dmId
             });
           }
         }
       }
     }
     if (shouldFetchDmIds && !excludeDms) {
-      log.info('Fetching all DM Channel IDs...');
-      let dmIds = await getAllDmIds(options.authToken, options.customHeaders);
+      log.info("Fetching all DM Channel IDs...");
+      let dmIds = options.dataExport
+        ? await getAllDmIdsFromExport(options.dataExport)
+        : await getAllDmIds(options.authToken, options.customHeaders);
       if (options.ignoredDmIds) {
         dmIds = dmIds.filter(id => !options.ignoredDmIds.includes(id));
       }
       for (const dmId of dmIds) {
         jobs.push({
-          guildId: '@me',
-          channelId: dmId,
+          guildId: "@me",
+          channelId: dmId
         });
       }
     }
@@ -462,19 +479,18 @@ async function main() {
     // Run deletion
     if (jobs.length > 0) {
       if (jobs.length === 1) {
-        log.warn('Running batch with exactly 1 job -- there is a bug in the batch creation code !');
+        log.warn("Running batch with exactly 1 job -- there is a bug in the batch creation code !");
       }
       log.info(`📦 Running ${jobs.length} batch jobs`);
       await undiscord.runBatch(jobs);
     } else {
-      log.info('🎯 Running deletion');
+      log.info("🎯 Running deletion");
       await undiscord.run();
     }
-
   } catch (error) {
-    log.error('❌ Error during execution:', error.message);
+    log.error("❌ Error during execution:", error.message);
     process.exit(1);
   }
 }
 
-main(); 
+main();
